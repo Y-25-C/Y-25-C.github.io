@@ -1,0 +1,206 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>温度智能控制</title>
+    <style>
+        body {
+            font-family: "微软雅黑", sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            font-size: 48px;
+            margin-top: 50px;
+        }
+        .input-item {
+            margin-bottom: 30px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .input-item label {
+            font-size: 18px;
+            color: #34495e;
+            font-weight: 500;
+        }
+        .input-item input {
+            height: 40px;
+            padding: 0 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 16px;
+            outline: none;
+            transition: border-color 0.3s ease;
+        }
+        .input-item input:focus {
+            border-color: #3498db;
+        }
+        #recommendInput {
+            background-color: #f8f9fa;
+            color: #e74c3c;
+            font-weight: bold;
+            cursor: default;
+            /* 推荐框宽度固定，避免被挤压 */
+            flex: 1;
+            min-width: 300px;
+        }
+        /* 推荐操作+温差提示 同行容器 */
+        .recommend-group {
+            display: flex;
+            align-items: center;
+            gap: 20px; /* 温差提示和输入框的间距 */
+            margin-top: 8px; /* 和上方标签的距离，避免碰上面 */
+            margin-bottom: 10px; /* 和下方内容的距离，避免碰下面 */
+        }
+        /* 温差提示样式：同行显示，不触碰上下元素 */
+        .diff-tip {
+            color: #2980b9;
+            font-size: 14px;
+            white-space: nowrap; /* 防止文字换行 */
+            display: none; /* 默认隐藏 */
+        }
+        /* 错误提示样式：仅输入非数字时显示 */
+        .error-tip {
+            color: #e74c3c;
+            font-size: 14px;
+            margin-top: 5px;
+            display: none; /* 默认隐藏 */
+        }
+        /* 不同温差区间的颜色样式 */
+        .diff-safe { color: #27ae60; }
+        .diff-light { color: #f39c12; }
+        .diff-medium { color: #e67e22; }
+        .diff-strong { color: #e74c3c; }
+    </style>
+</head>
+<body>
+    <h1>温度智能控制</h1>
+
+    <!-- 当前温度输入项 -->
+    <div class="input-item">
+        <label>当前温度（℃）</label>
+        <input type="text" id="currentTemp" placeholder="请输入数字温度值">
+        <div class="error-tip" id="currentError">请输入数字</div>
+    </div>
+
+    <!-- 目标温度输入项 -->
+    <div class="input-item">
+        <label>目标温度（℃）</label>
+        <input type="text" id="targetTemp" placeholder="请输入目标温度值">
+        <div class="error-tip" id="targetError">请输入数字</div>
+    </div>
+
+    <!-- 推荐操作 同行组 -->
+    <div class="input-item">
+        <label>推荐操作</label>
+        <!-- 同行容器：温差提示 + 推荐输入框 -->
+        <div class="recommend-group">
+            <div class="diff-tip" id="diffTip"></div>
+            <input type="text" id="recommendInput" placeholder="系统将自动推荐操作" readonly>
+        </div>
+    </div>
+
+    <script>
+        // 获取所有元素
+        const currentTempInput = document.getElementById('currentTemp');
+        const targetTempInput = document.getElementById('targetTemp');
+        const currentError = document.getElementById('currentError');
+        const targetError = document.getElementById('targetError');
+        const diffTip = document.getElementById('diffTip');
+        const recommendInput = document.getElementById('recommendInput');
+
+        // 工具函数：判断是否为有效数字
+        function isNumber(value) {
+            return !isNaN(Number(value)) && value.trim() !== "";
+        }
+
+        // 核心逻辑
+        function updateRecommend() {
+            // 1. 初始化所有提示
+            currentError.style.display = 'none';
+            targetError.style.display = 'none';
+            diffTip.style.display = 'none';
+            recommendInput.value = "";
+
+            // 2. 获取输入值
+            const currentValStr = currentTempInput.value.trim();
+            const targetValStr = targetTempInput.value.trim();
+
+            // 3. 校验逻辑：空值不提示，非空非数字才提示
+            let isCurrentValid = true;
+            if (currentValStr !== "" && !isNumber(currentValStr)) {
+                currentError.style.display = 'block';
+                isCurrentValid = false;
+            }
+            let isTargetValid = true;
+            if (targetValStr !== "" && !isNumber(targetValStr)) {
+                targetError.style.display = 'block';
+                isTargetValid = false;
+            }
+
+            // 4. 有输入无效则直接返回
+            if (!isCurrentValid || !isTargetValid) {
+                return;
+            }
+
+            // 5. 两个输入框都为空时，不处理
+            if (currentValStr === "" && targetValStr === "") {
+                return;
+            }
+
+            // 6. 仅当两个输入都为有效数字时，计算温差
+            if (isNumber(currentValStr) && isNumber(targetValStr)) {
+                const currentVal = Number(currentValStr);
+                const targetVal = Number(targetValStr);
+                const tempDiff = currentVal - targetVal;
+                const diffAbs = Math.abs(tempDiff);
+                const adjustType = tempDiff > 0 ? "制冷" : (tempDiff < 0 ? "制热" : "");
+
+                // 显示温差提示（同行显示）
+                diffTip.style.display = 'block';
+                if (adjustType) {
+                    diffTip.textContent = `当前与目标温差：${tempDiff}℃（需${adjustType}）`;
+                } else {
+                    diffTip.textContent = `当前与目标温差：0℃（温度一致）`;
+                }
+
+                // 设置温差提示颜色
+                diffTip.className = "diff-tip";
+                if (diffAbs <= 3) {
+                    diffTip.classList.add("diff-safe");
+                } else if (diffAbs <= 8) {
+                    diffTip.classList.add("diff-light");
+                } else if (diffAbs <= 13) {
+                    diffTip.classList.add("diff-medium");
+                } else {
+                    diffTip.classList.add("diff-strong");
+                }
+
+                // 匹配推荐操作
+                let recommendText = "";
+                if (diffAbs <= 3) {
+                    recommendText = "建议关闭制热制冷系统";
+                } else if (diffAbs <= 8) {
+                    recommendText = `建议轻度调节${adjustType}系统`;
+                } else if (diffAbs <= 13) {
+                    recommendText = `建议中度调节${adjustType}系统`;
+                } else {
+                    recommendText = `建议立即开启强烈的${adjustType}系统`;
+                }
+                recommendInput.value = recommendText;
+            }
+        }
+
+        // 监听输入事件
+        currentTempInput.addEventListener('input', updateRecommend);
+        targetTempInput.addEventListener('input', updateRecommend);
+    </script>
+</body>
+</html>
