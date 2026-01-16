@@ -19,6 +19,7 @@
             font-size: 48px;
             margin-top: 50px;
         }
+        /* 横向布局容器 */
         .row-group {
             display: flex;
             gap: 40px;
@@ -35,7 +36,7 @@
             color: #34495e;
             font-weight: 500;
         }
-        .input-item input {
+        .input-item input, .input-item select {
             height: 40px;
             padding: 0 12px;
             border: 1px solid #ddd;
@@ -44,12 +45,14 @@
             outline: none;
             transition: border-color 0.3s ease;
         }
-        .input-item input:focus {
+        .input-item input:focus, .input-item select:focus {
             border-color: #3498db;
         }
-        #locationInput {
+        /* 下拉列表样式（保留蓝色风格） */
+        #locationSelect {
             border: 1px solid #3498db;
             background-color: #eaf5ff;
+            cursor: pointer;
         }
         #recommendInput {
             background-color: #f8f9fa;
@@ -78,17 +81,6 @@
             margin-top: 5px;
             display: none;
         }
-        .weather-tip {
-            font-size: 14px;
-            margin-top: 5px;
-            display: none;
-        }
-        .weather-success {
-            color: #27ae60;
-        }
-        .weather-error {
-            color: #e74c3c;
-        }
         .diff-safe { color: #27ae60; }
         .diff-light { color: #f39c12; }
         .diff-medium { color: #e67e22; }
@@ -98,27 +90,37 @@
 <body>
     <h1>温湿度智能控制</h1>
 
+    <!-- 横向容器 -->
     <div class="row-group">
+        <!-- 当前温度输入项 -->
         <div class="input-item">
             <label>当前温度（℃）</label>
-            <input type="text" id="currentTemp" placeholder="请输入数字温度值">
+            <input type="text" id="currentTemp" placeholder="选择城市自动填充">
             <div class="error-tip" id="currentError">请输入数字</div>
         </div>
 
+        <!-- 当前位置下拉列表（新增阿克苏选项） -->
         <div class="input-item">
-            <label>当前位置（输入城市后按回车）</label>
-            <input type="text" id="locationInput" placeholder="例如：北京、上海、广州">
-            <div class="weather-tip weather-success" id="weatherSuccessTip"></div>
-            <div class="weather-tip weather-error" id="weatherErrorTip"></div>
+            <label>当前位置</label>
+            <select id="locationSelect">
+                <option value="">请选择城市</option>
+                <option value="宁波">宁波</option>
+                <option value="台州">台州</option>
+                <option value="杭州">杭州</option>
+                <option value="舟山">舟山</option>
+                <option value="阿克苏">阿克苏</option> <!-- 新增阿克苏选项 -->
+            </select>
         </div>
     </div>
 
+    <!-- 目标温度输入项 -->
     <div class="input-item">
         <label>目标温度（℃）</label>
         <input type="text" id="targetTemp" placeholder="请输入目标温度值">
         <div class="error-tip" id="targetError">请输入数字</div>
     </div>
 
+    <!-- 推荐操作 同行组 -->
     <div class="input-item">
         <label>推荐操作</label>
         <div class="recommend-group">
@@ -128,64 +130,57 @@
     </div>
 
     <script>
+        // 获取所有元素
         const currentTempInput = document.getElementById('currentTemp');
         const targetTempInput = document.getElementById('targetTemp');
-        const locationInput = document.getElementById('locationInput');
+        const locationSelect = document.getElementById('locationSelect');
         const currentError = document.getElementById('currentError');
         const targetError = document.getElementById('targetError');
-        const weatherSuccessTip = document.getElementById('weatherSuccessTip');
-        const weatherErrorTip = document.getElementById('weatherErrorTip');
         const diffTip = document.getElementById('diffTip');
         const recommendInput = document.getElementById('recommendInput');
 
+        // 城市-温度映射表（新增阿克苏：-4℃）
+        const cityTempMap = {
+            "宁波": 15,
+            "台州": 13,
+            "杭州": 16,
+            "舟山": 15,
+            "阿克苏": -4  // 新增阿克苏对应的温度
+        };
+
+        // 工具函数：判断是否为有效数字
         function isNumber(value) {
             return !isNaN(Number(value)) && value.trim() !== "";
         }
 
-        // 稳定HTTPS天气API（高德）
-        async function getRealTimeTemperature(city) {
-            try {
-                weatherSuccessTip.style.display = 'none';
-                weatherErrorTip.style.display = 'none';
-
-                // 步骤1：获取城市编码
-                const cityRes = await fetch(`https://restapi.amap.com/v3/geocode/geo?key=02385f021d5585a1013385a28220243e&address=${encodeURIComponent(city)}`);
-                const cityData = await cityRes.json();
-                if (cityData.status !== "1" || !cityData.geocodes || cityData.geocodes.length === 0) {
-                    throw new Error('未查询到该城市的信息');
-                }
-                const adcode = cityData.geocodes[0].adcode;
-
-                // 步骤2：获取实时温度
-                const weatherRes = await fetch(`https://restapi.amap.com/v3/weather/weatherInfo?key=02385f021d5585a1013385a28220243e&city=${adcode}&extensions=base`);
-                const weatherData = await weatherRes.json();
-                if (weatherData.status !== "1" || !weatherData.lives || weatherData.lives.length === 0) {
-                    throw new Error('未查询到该城市的温度信息');
-                }
-
-                // 自动填充到当前温度输入框
-                const realTemp = weatherData.lives[0].temperature;
-                currentTempInput.value = realTemp;
-                weatherSuccessTip.textContent = `✅ 已获取${city}实时温度：${realTemp}℃`;
-                weatherSuccessTip.style.display = 'block';
-                updateRecommend();
-
-            } catch (error) {
-                weatherErrorTip.textContent = `❌ ${error.message}，请检查城市名或网络`;
-                weatherErrorTip.style.display = 'block';
+        // 选择城市后自动填充温度
+        function fillTempByCity() {
+            const selectedCity = locationSelect.value;
+            // 清空当前温度（未选择城市时）
+            if (!selectedCity) {
+                currentTempInput.value = "";
+            } else {
+                // 按映射表填充对应温度
+                currentTempInput.value = cityTempMap[selectedCity];
             }
+            // 自动更新推荐操作
+            updateRecommend();
         }
 
+        // 推荐操作逻辑
         function updateRecommend() {
+            // 初始化所有提示
             currentError.style.display = 'none';
             targetError.style.display = 'none';
             diffTip.style.display = 'none';
             recommendInput.value = "";
 
+            // 获取输入值
             const currentValStr = currentTempInput.value.trim();
             const targetValStr = targetTempInput.value.trim();
-            const locationVal = locationInput.value.trim();
+            const selectedCity = locationSelect.value;
 
+            // 1. 校验温度输入
             let isCurrentValid = true;
             if (currentValStr !== "" && !isNumber(currentValStr)) {
                 currentError.style.display = 'block';
@@ -197,14 +192,17 @@
                 isTargetValid = false;
             }
 
+            // 温度输入无效，直接返回
             if (!isCurrentValid || !isTargetValid) {
                 return;
             }
 
-            if (locationVal === "") {
+            // 2. 校验是否选择了城市（替代原位置非空校验）
+            if (!selectedCity) {
                 return;
             }
 
+            // 3. 计算推荐操作
             if (isNumber(currentValStr) && isNumber(targetValStr)) {
                 const currentVal = Number(currentValStr);
                 const targetVal = Number(targetValStr);
@@ -212,6 +210,7 @@
                 const diffAbs = Math.abs(tempDiff);
                 const adjustType = tempDiff > 0 ? "制冷" : (tempDiff < 0 ? "制热" : "");
 
+                // 显示温差提示
                 diffTip.style.display = 'block';
                 if (adjustType) {
                     diffTip.textContent = `当前与目标温差：${tempDiff}℃（需${adjustType}）`;
@@ -219,6 +218,7 @@
                     diffTip.textContent = `当前与目标温差：0℃（温度一致）`;
                 }
 
+                // 设置温差提示颜色
                 diffTip.className = "diff-tip";
                 if (diffAbs <= 3) {
                     diffTip.classList.add("diff-safe");
@@ -226,10 +226,13 @@
                     diffTip.classList.add("diff-light");
                 } else if (diffAbs <= 13) {
                     diffTip.classList.add("diff-medium");
+                } else if (diffAbs <= 13) {
+                    diffTip.classList.add("diff-medium");
                 } else {
                     diffTip.classList.add("diff-strong");
                 }
 
+                // 生成推荐操作
                 let recommendText = "";
                 if (diffAbs <= 3) {
                     recommendText = "建议关闭制热制冷系统";
@@ -244,22 +247,11 @@
             }
         }
 
-        // 输入城市后按回车，自动获取温度并填充到当前温度输入框
-        locationInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                const city = locationInput.value.trim();
-                if (city) {
-                    getRealTimeTemperature(city);
-                } else {
-                    weatherErrorTip.textContent = "❌ 请先输入城市名称";
-                    weatherErrorTip.style.display = 'block';
-                }
-            }
-        });
-
+        // 监听下拉列表变化（选择城市触发温度填充）
+        locationSelect.addEventListener('change', fillTempByCity);
+        // 监听温度输入变化
         currentTempInput.addEventListener('input', updateRecommend);
         targetTempInput.addEventListener('input', updateRecommend);
-        locationInput.addEventListener('input', updateRecommend);
     </script>
 </body>
 </html>
